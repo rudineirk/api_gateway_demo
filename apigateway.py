@@ -16,7 +16,7 @@ DOMAIN_LIMIT = 2500
 SERVICE_MAPPING = {
     ('/api/v1/auth', 'GET'): {
         'type': 'amqp',
-        'endpoint': 'core.auth',
+        'endpoint': 'rpc.core.auth',
     }
 }
 
@@ -82,7 +82,7 @@ def get_body(content_length, wsgi_input):
 
 def query_amqp_endpoint(endpoint, data):
     client = AmqpEndpointClient()
-    return client.call(endpoint, data)
+    return json.loads(client.call(endpoint, data).decode())
 
 
 def app(env, resp):
@@ -97,21 +97,50 @@ def app(env, resp):
 
     try:
         service = SERVICE_MAPPING[(path, method)]
-
-        if service['type'] == 'amqp':
-            data = [query_amqp_endpoint(
-                service['endpoint'],
-                body if body else json.dumps(query)
-            )]
-        else:
-            raise KeyError()
-
-        status = '200 OK'
-        response_headers = [('Content-type', 'application/json')]
     except KeyError:
         status = '404 Not Found'
         response_headers = [('Content-type', 'text/plain')]
+        resp(status, response_headers)
+        return []
+
+    try:
+        body = json.loads(body) if body else {}
+    except json.decoder.JSONDecodeError:
+        status = '400 Bad Request'
+        response_headers = [('Content-type', 'text/plain')]
+        resp(status, response_headers)
+        return []
+
+    if service['type'] == 'amqp':
+        ret = query_amqp_endpoint(
+            service['endpoint'],
+            json.dumps({
+                'user_id': 'id-number',
+                'payload': body if body else query
+            })
+        )
+    else:
+        status = '404 Not Found'
+        response_headers = [('Content-type', 'text/plain')]
+        resp(status, response_headers)
+        return []
+
+    if ret['status'] == 'ok':
+        status = '200 OK'
+        response_headers = [('Content-type', 'application/json')]
+        data = [json.dumps(ret['payload']).encode()]
+    elif ret['status'] == 'encoding_error':
+        status = '400 Bad Request'
+        response_headers = [('Content-type', 'text/plain')]
         data = []
+    else:
+        status = '500 Internal Server Error'
+        response_headers = [('Content-type', 'text/plain')]
+        data = []
+
+    resp(status, response_headers)
+    return data
+
 
     resp(status, response_headers)
     return data
