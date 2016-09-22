@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import json
-from cgi import parse_qs
+from urllib.parse import parse_qs
 import uuid
 from wsgiref.simple_server import make_server
 
@@ -61,9 +61,11 @@ def get_query(query_string):
 
     tmp_query = parse_qs(query_string)
     query = {}
-    for key in tmp_query[:QUERY_KEYS_LIMIT]:
+    for key in list(tmp_query)[:QUERY_KEYS_LIMIT]:
         if len(tmp_query[key]) <= 1:
-            query[key] = query[key][0]
+            query[key] = tmp_query[key][0]
+
+    return query
 
 
 def get_body(content_length, wsgi_input):
